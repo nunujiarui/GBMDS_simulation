@@ -5,7 +5,7 @@ library(bayMDS)
 data(cityDIST) # 30*30
 
 start.time <- Sys.time()
-out <- bmds(cityDIST,min_p=2,max_p=2) 
+out <- bmds(cityDIST,min_p=2,max_p=2, niter = 5000) 
 end.time <- Sys.time()
 end.time - start.time # 15 sec
 #if(interactive()){bayMDSApp(out)}
@@ -86,7 +86,7 @@ hyperparList <- list(a = sim.a.initial, b = sim.b.initial,
 reference.x.sd <- diag(rep(0.01, p))
 
 tuningparList <- list(K = 200, phi = 0.80, eps = 0.5)
-n.core <- detectCores() - 0
+n.core <- detectCores()
 
 ## 1. annealed SMC with truncated Normal
 model <- truncatedN(hyperparList, p, reference.x.sd)
@@ -146,9 +146,9 @@ data <- readMat("data/whisky.mat")
 dis <- data$whiskydist # 86 * 86
 
 start.time <- Sys.time()
-out <- bmds(dis,min_p=2,max_p=2) 
+out <- bmds(dis, min_p=2, max_p=2, niter = 5000) 
 end.time <- Sys.time()
-end.time - start.time # 15 sec
+end.time - start.time # 14 sec
 
 
 ## MDS with annealed SMC
@@ -197,7 +197,7 @@ asmc.result1 <- ASMC(model = model,
                      metric = dist.metric[dist.metric.index])
 
 end.time <- Sys.time()
-end.time - start.time # 
+end.time - start.time # 42 sec / 1.1 min
 
 tn.logZ = asmc.result1$logZ
 
@@ -219,7 +219,7 @@ asmc.result2 <- ASMC(model = model,
                      tuningparList, n.core, cmds.result = cmds.result$points,
                      metric = dist.metric[dist.metric.index])
 end.time <- Sys.time()
-end.time - start.time # 
+end.time - start.time # 41 sec
 
 tsn.logZ = asmc.result2$logZ
 
@@ -238,6 +238,8 @@ tsn.stress <- round(stressFun(d.mat = dis,
 # https://www.kaggle.com/datasets/alejopaullier/county-pairwise-distance
 
 library(data.table)
+library(readr)
 
-data <- fread(file = "data/county_pairwise_distance.csv", header = TRUE) # 3233 * 3233
+data <- fread(unzip("data/county_pairwise_distance.csv.zip", 
+                    "county_pairwise_distance.csv"), header = TRUE) # 3233 * 3233
 
