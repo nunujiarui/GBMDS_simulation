@@ -37,13 +37,20 @@ initialFun.truncatedSkewedN <- function(model, cmds.result,  dist.mat, metric){
   x.initial <- t(apply(x.cmds, 1, reference$x))
 
   ## sigma2 (from prior distribution)
-  sigma2.initial <- MCMCpack::rinvgamma(1, shape = a, scale = b)
+  #sigma2.initial <- MCMCpack::rinvgamma(1, shape = a, scale = b)
+  sigma2.initial <- rinvgammaRcpp(n = 1, shape = a, scale = b)
 
   ## lambda (from prior distribution)
-  lambda.initial <- matrix(data = 0, nrow = p, ncol = p)
-  for (j in 1:p)
-    diag(lambda.initial)[j] <- MCMCpack::rinvgamma(1, shape = alpha, scale = beta[j])
+  # lambda.initial <- matrix(data = 0, nrow = p, ncol = p)
+  # for (j in 1:p){
+  #   #diag(lambda.initial)[j] <- MCMCpack::rinvgamma(1, shape = alpha, scale = beta[j])
+  #   diag(lambda.initial)[j] <- rinvgammaRcpp(n = 1, shape = alpha, scale = beta[j])
+  # }
 
+  lambda.initial <- diag(sapply(1:p, 
+                                function(j) rinvgammaRcpp(1, shape = alpha, scale = beta[j])))
+
+  
   # psi (from prior distribution)
   psi.initial <- runif(1, min = c, max = d)
 
@@ -88,30 +95,41 @@ proposalFun.truncatedSkewedN <- function(model, currentVal, n, dist.mat,
   # The full conditional posterior distrbuiton of lambda_j is the inverse Gamma distribution
   # lambda_j ~ IG(alpha + n/2 , beta_j + s_j/2)
   # where s_j/n is the sample variance of the jth coordinates of x_i's
-  lambda.proposal <- matrix(data = 0, nrow = p, ncol = p)
-  for (j in 1:p){
-
-    # calculate shape parameter
+  # lambda.proposal <- matrix(data = 0, nrow = p, ncol = p)
+  # for (j in 1:p){
+  # 
+  #   # calculate shape parameter
+  #   lambda.shape <- alpha + n/2
+  #   # calculate scale parameter
+  #   # first calculate s_j/n
+  #   sj.n <- var(x.cur[, j])*(n.obj-1)/n.obj
+  #   lambda.scale <- beta[j] + sj.n*n.obj/2
+  # 
+  #   #diag(lambda.proposal)[j] <- MCMCpack::rinvgamma(n = 1, shape = lambda.shape, scale = lambda.scale)
+  #   diag(lambda.proposal)[j] <- rinvgammaRcpp(n = 1, shape = lambda.shape, scale = lambda.scale)
+  # }
+  lambda.proposal <- diag(sapply(1:p, function(j) {
     lambda.shape <- alpha + n/2
-    # calculate scale parameter
-    # first calculate s_j/n
-    sj.n <- var(x.cur[, j])*(n.obj-1)/n.obj
-    lambda.scale <- beta[j] + sj.n*n.obj/2
-
-    diag(lambda.proposal)[j] <- MCMCpack::rinvgamma(n = 1, shape = lambda.shape, scale = lambda.scale)
-
-  }
+    sj.n <- var(x.cur[, j]) * (n.obj - 1) / n.obj
+    lambda.scale <- beta[j] + sj.n * n.obj / 2
+    rinvgammaRcpp(n = 1, shape = lambda.shape, scale = lambda.scale)
+  }))
 
   ##### x_i #####
   # A normal proposal density is used in the random walk Metropolis algorithm for
   # generation of x_i, i = 1, ... , n
   # Choose the variance of the normal proposal density to be a constant
   # multiple of sigma2/(n-1)
-  x.proposal <- matrix(data = 0, nrow = n.obj, ncol = p)
+  # x.proposal <- matrix(data = 0, nrow = n.obj, ncol = p)
+  # x.var <- constant.multiple * sigma2.cur/(n.obj - 1)
+  # for (i in 1:n.obj){
+  #   # x.proposal[i, ] <- mvtnorm::rmvnorm(n = 1, mean = x.cur[i, ], sigma = diag(rep(x.var, p)))
+  #   x.proposal[i, ] <- rmvnorm_arma_stochvol(n = 1, location = x.cur[i, ],
+  #                                            precision = solve(diag(rep(x.var, p))))
+  # }
   x.var <- constant.multiple * sigma2.cur/(n.obj - 1)
-  for (i in 1:n.obj){
-    x.proposal[i, ] <- mvtnorm::rmvnorm(n = 1, mean = x.cur[i, ], sigma = diag(rep(x.var, p)))
-  }
+  x.proposal <- t(apply(x.cur, 1, rmvnorm_arma_stochvol,
+                        n = 1, precision = solve(diag(rep(x.var, p)))))
 
   ##### sigma2 #####
   # A normal proposal density is used in the random walk Metropolis algorithm for
@@ -120,12 +138,15 @@ proposalFun.truncatedSkewedN <- function(model, currentVal, n, dist.mat,
   # variance of IG(m/2+a, SSR/2+b)
   m <- n.obj*(n.obj-1)/2
   sigma2.sd <- sqrt(constant.multiple * (SSR.cur/2 + b)^2/((m/2+a-1)^2*(m/2+a-2)))
-  sigma2.proposal <- exp(rnorm(n = 1, mean = log(sigma2.cur), sd = sigma2.sd))
+  #sigma2.proposal <- exp(rnorm(n = 1, mean = log(sigma2.cur), sd = sigma2.sd))
+  sigma2.proposal <- exp(rnormRcpp(n = 1, mean = log(sigma2.cur), sd = sigma2.sd))
+  
 
   ##### psi #####
   # A normal proposal density is used in the random walk Metropolis algorithm for
   # generation of psi
-  psi.proposal <- rnorm(n = 1, mean = psi.cur, sd = 0.1)
+  #psi.proposal <- rnorm(n = 1, mean = psi.cur, sd = 0.1)
+  psi.proposal <- rnormRcpp(n = 1, mean = psi.cur, sd = 0.1)
 
   if (sigma2.proposal <=  1e-10 | sigma2.proposal == Inf){
     output <- list(lambda = lambda.cur,
@@ -141,9 +162,9 @@ proposalFun.truncatedSkewedN <- function(model, currentVal, n, dist.mat,
     result.new <- likelihoodFun(model, dist.mat, proposal.result = proposal, metric)
     result.cur <- likelihoodFun(model, dist.mat, proposal.result = currentVal, metric)
     dproposal.new <- dproposalFun(model, n = n.obj, dist.mat,
-                                        para.result.l = proposal, para.result.r = currentVal, metric)
+                                  para.result.l = proposal, para.result.r = currentVal, metric)
     dproposal.cur <- dproposalFun(model, n = n.obj, dist.mat,
-                                        para.result.l = currentVal, para.result.r = proposal, metric)
+                                  para.result.l = currentVal, para.result.r = proposal, metric)
 
     probab <- exp(annealingPar*(result.new$logposterior - result.cur$logposterior) +
                     (1-annealingPar)*logReferenceRatio(proposal$x, x.cur, prevX))
@@ -228,20 +249,29 @@ dproposalFun.truncatedSkewedN <- function(model, n, dist.mat,
   # The full conditional posterior distrbuiton of lambda_j is the inverse Gamma distribution
   # lambda_j ~ IG(alpha + n/2 , beta_j + s_j/2)
   # where s_j/n is the sample variance of the jth coordinates of x_i's
-  lambda.density.mat <- matrix(data = 0, nrow = p, ncol = p)
-  for (j in 1:p){
-
-    # calculate shape parameter
+  
+  # lambda.density.mat <- matrix(data = 0, nrow = p, ncol = p)
+  # for (j in 1:p){
+  # 
+  #   # calculate shape parameter
+  #   shape.lambda <- alpha + n/2
+  #   # calculate scale parameter
+  #   # first calculate s_j/n
+  #   sj.n <- var(x.r[, j])
+  #   scale.lambda <- beta[j] + sj.n*n.obj/2
+  # 
+  #   diag(lambda.density.mat)[j] <- log(MCMCpack::dinvgamma(x = diag(lambda.l)[j],
+  #                                                          shape = shape.lambda, scale = scale.lambda))
+  # 
+  # }
+  
+  lambda.density.mat <- diag(sapply(1:p, function(j) {
     shape.lambda <- alpha + n/2
-    # calculate scale parameter
-    # first calculate s_j/n
     sj.n <- var(x.r[, j])
-    scale.lambda <- beta[j] + sj.n*n.obj/2
-
-    diag(lambda.density.mat)[j] <- log(MCMCpack::dinvgamma(x = diag(lambda.l)[j],
-                                                           shape = shape.lambda, scale = scale.lambda))
-
-  }
+    scale.lambda <- beta[j] + sj.n * n.obj / 2
+    log(MCMCpack::dinvgamma(x = diag(lambda.l)[j], shape = shape.lambda, scale = scale.lambda))
+  }))
+  
   lambda.density <- sum(diag(lambda.density.mat))
 
   ##### x_i #####
@@ -249,12 +279,18 @@ dproposalFun.truncatedSkewedN <- function(model, n, dist.mat,
   # generation of x_i, i = 1, ... , n
   # Choose the variance of the normal proposal density to be a constant
   # multiple of sigma2/(n-1)
-  x.density.mat <- numeric()
-  x.var <- constant.multiple * sigma2.r/(n.obj - 1)
-  for (i in 1:n.obj){
-    x.density.mat[i] <- mvtnorm::dmvnorm(x = x.l[i, ], mean = x.r[i, ], sigma = diag(rep(x.var, p)),
-                                         log = TRUE)
-  }
+
+  # x.density.mat <- numeric()
+  # x.var <- constant.multiple * sigma2.r/(n.obj - 1)
+  # for (i in 1:n.obj){
+  #   x.density.mat[i] <- mvtnorm::dmvnorm(x = x.l[i, ], mean = x.r[i, ], 
+  #                                        sigma = diag(rep(x.var, p)),
+  #                                        log = TRUE)
+  # }
+  x.var <- constant.multiple * sigma2.r / (n.obj - 1)
+  x.density.mat <- sapply(1:n.obj, function(i) {
+    mvtnorm::dmvnorm(x = x.l[i, ], mean = x.r[i, ], sigma = diag(rep(x.var, p)), log = TRUE)
+  })
   x.density <- sum(x.density.mat)
 
   ##### sigma2 #####
@@ -351,10 +387,13 @@ likelihoodFun.truncatedSkewedN <- function(model, dist.mat, proposal.result, met
   # prior for sigma2
   sigma2.logprior <- log(MCMCpack::dinvgamma(sigma2, shape = a, scale = b))
   # prior for lambda
-  lambda.logprior <- matrix(data = 0, nrow = p, ncol = p)
-  for (j in 1:p){
-    diag(lambda.logprior)[j] <- log(MCMCpack::dinvgamma(diag(lambda)[j], shape = alpha, scale = beta[j]))
-  }
+    # lambda.logprior <- matrix(data = 0, nrow = p, ncol = p)
+  # for (j in 1:p){
+  #   diag(lambda.logprior)[j] <- log(MCMCpack::dinvgamma(diag(lambda)[j], shape = alpha, scale = beta[j]))
+  # }
+  lambda.logprior <- diag(sapply(1:p, 
+                                 function(j) log(MCMCpack::dinvgamma(diag(lambda)[j], shape = alpha, scale = beta[j]))))
+  
   # prior for psi
   psi.logprior <- dunif(psi, min = c, max = d, log = TRUE)
 

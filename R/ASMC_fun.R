@@ -14,6 +14,8 @@
 
 ASMC <- function(model,  dist.mat, tuningparList, n.core, cmds.result, metric){
 
+  if( n.core > 1 )  cl = parallel::makeCluster(n.core, type="FORK", setup_timeout = 0.5)
+  
   n <- nrow(dist.mat)
   K <- tuningparList$K
 
@@ -46,19 +48,33 @@ ASMC <- function(model,  dist.mat, tuningparList, n.core, cmds.result, metric){
   lambda <- list()
   psi <- numeric()
 
-
   if (any(class(model) %in% c("truncatedT"))){
     g <- list()
   }
+  
+  initialK <- function(k){
+    res <- initialFun(model, cmds.result, dist.mat, metric)
+    return(res)
+  }
 
-  theta <- lapply(1:K, function(i){initialFun(model, cmds.result, dist.mat, metric)})
-  xi <- lapply(1:K, function(k){theta[[k]]$x})
-
-  sigma2 <- unlist(lapply(1:K, function(k){theta[[k]]$sigma2}))
-  psi <- unlist(lapply(1:K, function(k){theta[[k]]$psi}))
-  lambda <- lapply(1:K, function(k){theta[[k]]$lambda})
-  if (any(class(model) %in% c("truncatedT"))){
-    g <- lapply(1:K, function(k){theta[[k]]$g})
+  if (n.core > 1){
+    result <- parLapply(cl, 1:K, initialK)
+    xi <- lapply(1:K, function(k){result[[k]]$x})
+    sigma2 <- unlist(lapply(1:K, function(k){result[[k]]$sigma2}))
+    psi <- unlist(lapply(1:K, function(k){result[[k]]$psi}))
+    lambda <- lapply(1:K, function(k){result[[k]]$lambda})
+    if (any(class(model) %in% c("truncatedT"))){
+      g <- lapply(1:K, function(k){result[[k]]$g})
+    }
+  } else{
+    theta <- lapply(1:K, function(i){initialFun(model, cmds.result, dist.mat, metric)})
+    xi <- lapply(1:K, function(k){theta[[k]]$x})
+    sigma2 <- unlist(lapply(1:K, function(k){theta[[k]]$sigma2}))
+    psi <- unlist(lapply(1:K, function(k){theta[[k]]$psi}))
+    lambda <- lapply(1:K, function(k){theta[[k]]$lambda})
+    if (any(class(model) %in% c("truncatedT"))){
+      g <- lapply(1:K, function(k){theta[[k]]$g})
+    }
   }
 
   sigma2.list[[r]] <- sigma2
@@ -69,8 +85,6 @@ ASMC <- function(model,  dist.mat, tuningparList, n.core, cmds.result, metric){
   # set initialize weights to unity
   W <- rep(1/K, K)
   logW <- log(W)
-
-  if( n.core > 1 )  cl = parallel::makeCluster(n.core, type="FORK", setup_timeout = 0.5)
 
   ### Annealed SMC
   while (tau[r] < 1) {
