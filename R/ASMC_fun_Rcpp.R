@@ -11,13 +11,17 @@
 #' @return results of weighted particles, marginal likelihood estimates
 #' @examples
 #' print(" ")
+#' 
 
-ASMC <- function(model,  dist.mat, tuningparList, n.core, cmds.result, metric){
+ASMC_Rcpp <- function(model, dist.mat, tuningparList, n.core, cmds.result, metric){
 
-  if( n.core > 1 )  cl = parallel::makeCluster(n.core, type="FORK", setup_timeout = 0.5)
+  # register the number of cores to use for parallel execution
+  registerDoMC(n.core)
   
   n <- nrow(dist.mat)
   K <- tuningparList$K
+  
+  hyperparList <- model$hyperparList
 
   ### setting
   x.mean <- list(rep(0, p))
@@ -53,21 +57,38 @@ ASMC <- function(model,  dist.mat, tuningparList, n.core, cmds.result, metric){
   }
   
   initialK <- function(k){
-    res <- initialFun(model, cmds.result, dist.mat, metric)
+    #res <- initialFun(model, cmds.result, dist.mat, metric)
+    if (any(class(model) %in% c("truncatedN"))){
+      res <- initialFun_cpp(cmds.result, dist.mat, metric, hyperparList)
+    } else if (any(class(model) %in% c("truncatedT"))){
+      res <- initialFun_T_cpp(cmds.result, dist.mat, metric, hyperparList)
+    } else if (any(class(model) %in% c("truncatedSkewedN"))){
+      res <- initialFun_SN_cpp(cmds.result, dist.mat, metric, hyperparList)
+    }
     return(res)
   }
 
   if (n.core > 1){
-    result <- parLapply(cl, 1:K, initialK)
-    xi <- lapply(1:K, function(k){result[[k]]$x})
-    sigma2 <- unlist(lapply(1:K, function(k){result[[k]]$sigma2}))
-    psi <- unlist(lapply(1:K, function(k){result[[k]]$psi}))
-    lambda <- lapply(1:K, function(k){result[[k]]$lambda})
+    theta <- foreach(i = 1:K, .combine = 'c') %dopar% {
+      temp <- initialK(i)
+      list(temp)
+    }
+    xi <- lapply(1:K, function(k){theta[[k]]$x})
+    sigma2 <- unlist(lapply(1:K, function(k){theta[[k]]$sigma2}))
+    psi <- unlist(lapply(1:K, function(k){theta[[k]]$psi}))
+    lambda <- lapply(1:K, function(k){theta[[k]]$lambda})
     if (any(class(model) %in% c("truncatedT"))){
-      g <- lapply(1:K, function(k){result[[k]]$g})
+      g <- lapply(1:K, function(k){theta[[k]]$g})
     }
   } else{
-    theta <- lapply(1:K, function(i){initialFun(model, cmds.result, dist.mat, metric)})
+    if (any(class(model) %in% c("truncatedN"))){
+      theta <- lapply(1:K, function(i){initialFun_cpp(cmds.result, dist.mat, metric, hyperparList)})
+    } else if (any(class(model) %in% c("truncatedT"))){
+      theta <- lapply(1:K, function(i){initialFun_T_cpp(cmds.result, dist.mat, metric, hyperparList)})
+    } else if (any(class(model) %in% c("truncatedSkewedN"))){
+      theta <- lapply(1:K, function(i){initialFun_SN_cpp(cmds.result, dist.mat, metric, hyperparList)})
+    }
+    #theta <- lapply(1:K, function(i){initialFun_cpp(cmds.result, dist.mat, metric, hyperparList)})
     xi <- lapply(1:K, function(k){theta[[k]]$x})
     sigma2 <- unlist(lapply(1:K, function(k){theta[[k]]$sigma2}))
     psi <- unlist(lapply(1:K, function(k){theta[[k]]$psi}))
@@ -104,13 +125,24 @@ ASMC <- function(model,  dist.mat, tuningparList, n.core, cmds.result, metric){
         previousVal <- list(x = xi[[k]], sigma2 = sigma2[k], psi = psi[k],
                            lambda = lambda[[k]], SSR = SSR[k])
       }
-
-      lik.result <- likelihoodFun(model,  dist.mat, proposal.result = previousVal, metric)
-      xi.list <- lapply(seq_len(nrow(xi[[k]])), function(i) xi[[k]][i,])
+      
+      if (any(class(model) %in% c("truncatedN"))){
+        lik.result <- likelihoodFun_cpp(dist.mat, previousVal, metric, hyperparList)
+      } else if (any(class(model) %in% c("truncatedT"))){
+        lik.result <- likelihoodFun_T_cpp(dist.mat, previousVal, metric, hyperparList)
+      } else if (any(class(model) %in% c("truncatedSkewedN"))){
+        lik.result <- likelihoodFun_SN_cpp(dist.mat, previousVal, metric, hyperparList)
+      }
+      
+      #lik.result <- likelihoodFun(model,  dist.mat, proposal.result = previousVal, metric)
+      #lik.result <- likelihoodFun_cpp(dist.mat, previousVal, metric, hyperparList)
+      xi.list <- lapply(seq_len(nrow(xi[[k]])), function(i) matrix(xi[[k]][i,], nrow = 1))
       lambda.list <- rep(list(lambda[[k]]), n)
-      prior.d.x <- mapply(mvtnorm::dmvnorm, xi.list, x.mean.list, lambda.list, log = TRUE)
+      # prior.d.x <- mapply(mvtnorm::dmvnorm, xi.list, x.mean.list, lambda.list, log = TRUE)
+      prior.d.x <- mapply(dmvnrm_arma_fast, xi.list, x.mean.list, lambda.list, log = TRUE)
       reference.mean.k <- lapply(seq_len(nrow(reference.mean[[k]])), function(i) reference.mean[[k]][i,])
-      ref.d.x <- mapply(mvtnorm::dmvnorm, xi.list, reference.mean.k, rep(list(reference.x.sd), n), log = TRUE)
+      # ref.d.x <- mapply(mvtnorm::dmvnorm, xi.list, reference.mean.k, rep(list(reference.x.sd), n), log = TRUE)
+      ref.d.x <- mapply(dmvnrm_arma_fast, xi.list, reference.mean.k, rep(list(reference.x.sd), n), log = TRUE)
       logPriorRef <- sum(ref.d.x)
       logL <- lik.result$logposterior - logPriorRef
       SSR <- lik.result$SSR
@@ -119,9 +151,11 @@ ASMC <- function(model,  dist.mat, tuningparList, n.core, cmds.result, metric){
     }
 
     if (n.core > 1){
-      result <- parLapply(cl, 1:K, logLFun)
-      logL <- unlist(lapply(1:K, function(k){result[[k]]$logL}))
-      SSR <- unlist(lapply(1:K, function(k){result[[k]]$SSR}))
+      result <- foreach(i = 1:K, .combine = 'cbind') %dopar% {
+        logLFun(i)
+      }
+      logL <- unlist(result[1, ])
+      SSR <- unlist(result[2, ])
     } else{
       result <- sapply(1:K, logLFun)
       logL <- unlist(result[1, ])
@@ -129,7 +163,7 @@ ASMC <- function(model,  dist.mat, tuningparList, n.core, cmds.result, metric){
     }
 
     ## determine next annealing parameter
-    tauDiff[r] <- bisectionFun(low = 0, high = 1, W, logL, phi = tuningparList$phi)
+    tauDiff[r] <- bisectionFun_cpp(low = 0, high = 1, W, logL, phi = tuningparList$phi)
     tau[r] <- tau[r-1] + tauDiff[r]
     cat("annealing parameter:", tau[r],"\n")
 
@@ -162,10 +196,43 @@ ASMC <- function(model,  dist.mat, tuningparList, n.core, cmds.result, metric){
       } else{
         prevX <- xi.prev[[k]]
       }
+      
+      # prop.result <- list()
+      # attempt <- 0
+      # while(length(prop.result) == 0 & attempt < 5){
+      #   try(
+      #     if (any(class(model) %in% c("truncatedN"))){
+      #       prop.result <- proposalFun_cpp(dist.mat, currentVal, prevX, 
+      #                                      tau[r], metric, hyperparList)
+      #     } else if (any(class(model) %in% c("truncatedT"))){
+      #       prop.result <- proposalFun_T_cpp(dist.mat, currentVal, prevX, 
+      #                                      tau[r], metric, hyperparList)
+      #     } else if (any(class(model) %in% c("truncatedSkewedN"))){
+      #       prop.result <- proposalFun_SN_cpp(dist.mat, currentVal, prevX, 
+      #                                      tau[r], metric, hyperparList)
+      #     }
+      #     
+      #     # prop.result <- proposalFun_cpp(dist.mat, currentVal, prevX, 
+      #     #                                tau[r], metric, hyperparList)
+      #   )
+      #   attempt <- attempt + 1
+      # }
+      # print(attempt)
+      
+      if (any(class(model) %in% c("truncatedN"))){
+        prop.result <- proposalFun_cpp(dist.mat, currentVal, prevX, 
+                                       tau[r], metric, hyperparList)
+      } else if (any(class(model) %in% c("truncatedT"))){
+        prop.result <- proposalFun_T_cpp(dist.mat, currentVal, prevX, 
+                                         tau[r], metric, hyperparList)
+      } else if (any(class(model) %in% c("truncatedSkewedN"))){
+        prop.result <- proposalFun_SN_cpp(dist.mat, currentVal, prevX, 
+                                          tau[r], metric, hyperparList)
+      }
 
-      prop.result <- proposalFun(model, currentVal, n, dist.mat,
-                                 prevX = prevX, metric, annealingPar = tau[r])
-
+      # prop.result <- proposalFun_cpp(dist.mat, currentVal, prevX,
+      #                                annealingPar = tau[r], metric, hyperparList)
+      # 
       xi <- prop.result$x
       sigma2 <- prop.result$sigma2
       lambda <- prop.result$lambda
@@ -186,10 +253,11 @@ ASMC <- function(model,  dist.mat, tuningparList, n.core, cmds.result, metric){
       return(result)
     }
 
-    if (n.core > 1) clusterExport(cl, varlist = ls(), envir = environment())
-
     if (n.core > 1){
-      result.MCMC <- parLapply(cl, 1:K, MCMCmove)
+      result.MCMC <- foreach(i = 1:K, .combine = 'c') %dopar% {
+        temp <- MCMCmove(i)
+        list(temp)
+      }
       xi <- lapply(1:K, function(k){result.MCMC[[k]]$xi})
       sigma2 <- unlist(lapply(1:K, function(k){result.MCMC[[k]]$sigma2}))
       lambda <- lapply(1:K, function(k){result.MCMC[[k]]$lambda})
@@ -226,12 +294,12 @@ ASMC <- function(model,  dist.mat, tuningparList, n.core, cmds.result, metric){
         output.list <- list(xi.output = xi, sigma2.output = sigma2, psi.output = psi,
                             lambda.output = lambda, g.output = g,
                             weight.output = W,
-                            SSR.output = SSR, logZ = logZ)
+                            SSR.output = SSR, logZ = logZ, iteration = r)
       } else{
         output.list <- list(xi.output = xi, sigma2.output = sigma2, psi.output = psi,
                             lambda.output = lambda,
                             weight.output = W,
-                            SSR.output = SSR, logZ = logZ)
+                            SSR.output = SSR, logZ = logZ, iteration = r)
       }
     } else if (rESS[r] < tuningparList$eps){
       # particle degeneracy is too severe, resampling is needed
@@ -249,8 +317,6 @@ ASMC <- function(model,  dist.mat, tuningparList, n.core, cmds.result, metric){
     }
 
   }
-
-  #stopCluster(cl)
 
   ## Set the name for the class
   class(output.list) <- append(class(output.list),"BMDSParticles")

@@ -111,7 +111,7 @@ proposalFun.truncatedN <-  function(model, currentVal, n, dist.mat,
   b <- hyperparList$b
   alpha <- hyperparList$alpha
   beta <- hyperparList$beta
-  constant.multiple <- hyperparList$constant.multiple
+  constant.multiple <- hyperparList$constant_multiple
 
   # Get current values
   x.cur <- currentVal$x
@@ -176,7 +176,8 @@ proposalFun.truncatedN <-  function(model, currentVal, n, dist.mat,
     dproposal.cur <- dproposalFun(model, n = n.obj, dist.mat,
                                   para.result.l = currentVal, para.result.r = proposal, metric)
 
-    probab <- exp(annealingPar*(result.new$logposterior - result.cur$logposterior) +
+    probab <- exp(#result.new - result.cur +
+                    annealingPar*(result.new$logposterior - result.cur$logposterior) +
                     (1-annealingPar)*logReferenceRatio(proposal$x, x.cur, prevX))
 
     # accept or reject step
@@ -219,7 +220,7 @@ dproposalFun.truncatedN <- function(model, n, dist.mat,
   b <- hyperparList$b
   alpha <- hyperparList$alpha
   beta <- hyperparList$beta
-  constant.multiple <- hyperparList$constant.multiple
+  constant.multiple <- hyperparList$constant_multiple
 
   # Get parameter values
   x.l <- para.result.l$x
