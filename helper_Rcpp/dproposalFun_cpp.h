@@ -39,9 +39,9 @@ double dproposalFun_cpp(arma::mat dist_mat,
 
   // calculate delta matrix and d matrix
   arma::mat d_mat = dist_mat;
-  Rcpp::NumericMatrix delta_mat_l_rcpp = distRcpp(wrap(x_l));
+  Rcpp::NumericMatrix delta_mat_l_rcpp = distRcpp(wrap(x_l), metric);
   arma::mat delta_mat_l = Rcpp::as<Mat<double>>(delta_mat_l_rcpp);
-  Rcpp::NumericMatrix delta_mat_r_rcpp = distRcpp(wrap(x_r));
+  Rcpp::NumericMatrix delta_mat_r_rcpp = distRcpp(wrap(x_r), metric);
   arma::mat delta_mat_r = Rcpp::as<Mat<double>>(delta_mat_r_rcpp);
 
   // calculate SSR

@@ -5,16 +5,17 @@
 #include "SSRFun_cpp.h"
 #include "dinvgamma_cpp.h"
 #include "dmvnrm_arma_fast.h"
-#include "likelihoodFun_SN_cpp.h"
+#include "likelihoodFun_T_incr_cpp.h"
+//#include "dproposalFun_cpp.h"
 #include "logReferenceRatio_cpp.h"
 using namespace Rcpp;
 // [[Rcpp::export]]
 
 // proposal function
-Rcpp::List proposalFun_SN_cpp(arma::mat dist_mat, Rcpp::List currentVal, 
-                              arma::mat prevX, double annealingPar,
-                              String metric, Rcpp::List hyperparList,
-                              double upper_bound){
+Rcpp::List proposalFun_T_incr_cpp(arma::mat dist_mat, Rcpp::List currentVal, 
+                                  arma::mat prevX, double annealingPar,
+                                  String metric, Rcpp::List hyperparList,
+                                  double n_incr, double upper_bound){
   
   double n_obj = dist_mat.n_rows;
   int m = n_obj * (n_obj - 1) / 2;
@@ -22,23 +23,27 @@ Rcpp::List proposalFun_SN_cpp(arma::mat dist_mat, Rcpp::List currentVal,
   // extract hyperparameters
   double a = hyperparList["a"];
   double b = hyperparList["b"];
-  double c = hyperparList["c"];
-  double d = hyperparList["d"];
   double alpha = hyperparList["alpha"];
   arma::vec beta = hyperparList["beta"];
   double constant_multiple = hyperparList["constant_multiple"];
+  double df_nu = hyperparList["df"];
   
   // extract current results
   arma::mat x_cur = currentVal["x"];
   double sigma2_cur = currentVal["sigma2"];
   arma::mat lambda_cur = currentVal["lambda"];
   double SSR_cur = currentVal["SSR"];
-  double psi_cur = currentVal["psi"];
+  arma::mat g_cur = currentVal["g"];
   int p = x_cur.n_cols;
+  
+  // calculate delta matrix and d matrix
+  arma::mat d_mat = dist_mat;
+  Rcpp::NumericMatrix delta_mat_rcpp = distRcpp(wrap(x_cur), metric);
+  arma::mat delta_mat = Rcpp::as<Mat<double>>(delta_mat_rcpp);
   
   // Propose new values for parameters
   // lambda_j
-  // The full conditional posterior distribuiton of lambda_j is the inverse Gamma distribution
+  // The full conditional posterior distrbuiton of lambda_j is the inverse Gamma distribution
   // lambda_j ~ IG(alpha + n/2 , beta_j + s_j/2)
   // where s_j/n is the sample variance of the jth coordinates of x_i's
   arma::vec lambda_proposal_diag(p);
@@ -81,41 +86,43 @@ Rcpp::List proposalFun_SN_cpp(arma::mat dist_mat, Rcpp::List currentVal,
   double sigma2_proposal = exp(R::rnorm(log(sigma2_cur), sigma2_sd));
   // Rcout << "sigma2_proposal: " << sigma2_proposal;
   
-  // psi
-  // A normal proposal density is used in the random walk Metropolis algorithm for
-  // generation of psi
-  double psi_proposal;
-  double psi_proposal0 = R::rnorm(psi_cur, 0.1);
-  // Rcout << "psi_proposal: " << psi_proposal;
-  if (psi_proposal0 >= d || psi_proposal0 <= c) {
-    psi_proposal = psi_cur;
-    //Rcout << "psi_proposal: " << psi_proposal;
-  } else {
-    psi_proposal = psi_proposal0;
+  // g_ij
+  // g_ij condition on other variables follows a Gamma distribution
+  // g_ij ~ Gamma((1+df)/2 , (delta_ij-d_ij)^2/(2*sigma2) + df/4)
+  double g_shape = (1+ df_nu) / 2;
+  arma::uvec idx = arma::trimatu_ind(arma::size(delta_mat), 1);
+  vec g_rate_vec = square(d_mat.elem(idx) - delta_mat.elem(idx)) / (2*sigma2_cur) + df_nu / 4;
+  vec temp_g_vec(m);
+  for (int i = 0; i < m; i++){
+    double g_rate = g_rate_vec[i];
+    // Rcout << "g_rate" << g_rate;
+    NumericVector temp_g = rgamma(1, g_shape, 1/g_rate);
+    // Rcout << "temp_g" << temp_g;
+    arma::vec temp_gg = as<arma::vec>(wrap(temp_g));
+    // double temp_g = rgamma(1, g_shape, g_rate);
+    temp_g_vec(i) = temp_gg[0];
   }
-  
-  // while (psi_proposal >= d || psi_proposal <= c){
-  //   double psi_proposal = R::rnorm(psi_cur, 0.1);
-  // }
-  // Rcout << "psi_proposal: " << psi_proposal;
+  arma::mat g_proposal(n_obj, n_obj, fill::zeros);
+  g_proposal.elem(idx) = temp_g_vec;
+  //g_proposal.print();
   
   Rcpp::List output;
   if (sigma2_proposal <=  1e-10 || isinf(sigma2_proposal)){
     output = Rcpp::List::create(Rcpp::Named("x")=x_cur,
                                 Rcpp::Named("sigma2")=sigma2_cur,
                                 Rcpp::Named("lambda")=lambda_cur,
-                                Rcpp::Named("psi")=psi_cur);
+                                Rcpp::Named("g")=g_cur);
   } else {
     
     Rcpp::List proposal = Rcpp::List::create(Rcpp::Named("x")=x_proposal,
                                              Rcpp::Named("sigma2")=sigma2_proposal,
                                              Rcpp::Named("lambda")=lambda_proposal,
-                                             Rcpp::Named("psi")=psi_proposal);
+                                             Rcpp::Named("g")=g_proposal);
     
-    Rcpp::List result_new = likelihoodFun_SN_cpp(dist_mat, upper_bound, proposal,
-                                                 metric, hyperparList);
-    Rcpp::List result_cur = likelihoodFun_SN_cpp(dist_mat, upper_bound, currentVal, 
-                                                 metric, hyperparList);
+    Rcpp::List result_new = likelihoodFun_T_incr_cpp(dist_mat, upper_bound, proposal,
+                                                metric, hyperparList, n_incr);
+    Rcpp::List result_cur = likelihoodFun_T_incr_cpp(dist_mat, upper_bound, currentVal, 
+                                                metric, hyperparList, n_incr);
     
     // double dproposal_new = dproposalFun_cpp(dist_mat,
     //                                         proposal, currentVal,
@@ -130,7 +137,8 @@ Rcpp::List proposalFun_SN_cpp(arma::mat dist_mat, Rcpp::List currentVal,
     double logposterior_cur = result_cur["logposterior"];
     double log_reference_ratio = logReferenceRatio_cpp(x_proposal, x_cur, prevX);
     
-    double probab = exp(annealingPar * (logposterior_new - logposterior_cur) + 
+    double probab = exp(//dproposal_new - dproposal_cur +
+                        annealingPar * (logposterior_new - logposterior_cur) + 
                         (1-annealingPar) * log_reference_ratio);
     // Rcout << "probab: " << probab;
     
@@ -139,25 +147,25 @@ Rcpp::List proposalFun_SN_cpp(arma::mat dist_mat, Rcpp::List currentVal,
     arma::mat x;
     double sigma2;
     arma::mat lambda;
-    double psi;
+    arma::mat g;
     if (rand < probab){
       // accept
       x = x_proposal;
       sigma2 = sigma2_proposal;
       lambda = lambda_proposal;
-      psi = psi_proposal;
+      g = g_proposal;
     } else {
       // reject
       x = x_cur;
       sigma2 = sigma2_cur;
       lambda = lambda_cur;
-      psi = psi_cur;
+      g = g_cur;
     }
     
     output = Rcpp::List::create(Rcpp::Named("x")=x,
                                 Rcpp::Named("sigma2")=sigma2,
                                 Rcpp::Named("lambda")=lambda,
-                                Rcpp::Named("psi")=psi);  
+                                Rcpp::Named("g")=g);  
   }
   
   return(output);
@@ -167,15 +175,10 @@ Rcpp::List proposalFun_SN_cpp(arma::mat dist_mat, Rcpp::List currentVal,
 
 /*** R
 
-# proposalFun_SN_cpp(dist_mat, currentVal, prevX, 0.3, metric, hyperparList)
+# proposalFun_T_cpp(dist_mat, currentVal, prevX, 0.3, metric, hyperparList)
 
 # proposalFun_cpp(dist.mat, currentVal, prevX, tau[r], metric, hyperparList)
 
-# set.seed(452)
-# start.time <- Sys.time()
-# erin <- lapply(1:K, function(i){proposalFun_SN_cpp(dist_mat, currentVal, prevX, 
-#                                                    0.3, metric, hyperparList)})
-# end.time <- Sys.time()
-# end.time - start.time
+# prop.result <- proposalFun_T_incr_cpp(dist.mat, currentVal, prevX, tau[r], metric, hyperparList, n.incr)
 
 */

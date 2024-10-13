@@ -14,7 +14,8 @@ using namespace Rcpp;
 // proposal function
 Rcpp::List proposalFun_T_cpp(arma::mat dist_mat, Rcpp::List currentVal, 
                              arma::mat prevX, double annealingPar,
-                             String metric, Rcpp::List hyperparList){
+                             String metric, Rcpp::List hyperparList,
+                             double upper_bound){
   
   double n_obj = dist_mat.n_rows;
   int m = n_obj * (n_obj - 1) / 2;
@@ -37,7 +38,7 @@ Rcpp::List proposalFun_T_cpp(arma::mat dist_mat, Rcpp::List currentVal,
   
   // calculate delta matrix and d matrix
   arma::mat d_mat = dist_mat;
-  Rcpp::NumericMatrix delta_mat_rcpp = distRcpp(wrap(x_cur));
+  Rcpp::NumericMatrix delta_mat_rcpp = distRcpp(wrap(x_cur), metric);
   arma::mat delta_mat = Rcpp::as<Mat<double>>(delta_mat_rcpp);
   
   // Propose new values for parameters
@@ -118,9 +119,9 @@ Rcpp::List proposalFun_T_cpp(arma::mat dist_mat, Rcpp::List currentVal,
                                              Rcpp::Named("lambda")=lambda_proposal,
                                              Rcpp::Named("g")=g_proposal);
     
-    Rcpp::List result_new = likelihoodFun_T_cpp(dist_mat, proposal,
+    Rcpp::List result_new = likelihoodFun_T_cpp(dist_mat, upper_bound, proposal,
                                                 metric, hyperparList);
-    Rcpp::List result_cur = likelihoodFun_T_cpp(dist_mat, currentVal, 
+    Rcpp::List result_cur = likelihoodFun_T_cpp(dist_mat, upper_bound, currentVal, 
                                                 metric, hyperparList);
     
     // double dproposal_new = dproposalFun_cpp(dist_mat,

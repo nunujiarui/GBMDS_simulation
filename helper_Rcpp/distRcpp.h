@@ -10,7 +10,7 @@ using namespace arma;
 // [[Rcpp::depends(RcppArmadillo)]]
 // [[Rcpp::depends(Rcpp)]]
 
-Rcpp::NumericMatrix distRcpp(Rcpp::NumericMatrix X){
+Rcpp::NumericMatrix distRcpp(Rcpp::NumericMatrix X, String metric){
   Rcpp::NumericMatrix XX(X);
   //Rcpp::Rcout << X << endl; 
   //Rcpp::Rcout << XX << endl;    
@@ -19,10 +19,13 @@ Rcpp::NumericMatrix distRcpp(Rcpp::NumericMatrix X){
   for(int i=0; i< p; i++){
     for(int j=0; j< p; j++){
       if(i!=j){
-        // Euclidean distance
-        DIST(i,j)=sqrt(sum((XX.row(i)-XX.row(j))*(XX.row(i)-XX.row(j))));
-        // Cosine distance
-        //DIST(i,j)= 1-sum(XX.row(i)*XX.row(j))/(sqrt(sum(pow(XX.row(i),2)))*sqrt(sum(pow(XX.row(j),2))));
+        if(metric == "euclidean"){
+          // Euclidean distance
+          DIST(i,j)=sqrt(sum((XX.row(i)-XX.row(j))*(XX.row(i)-XX.row(j))));
+        }else if (metric == "cosine"){
+          // Cosine distance
+          DIST(i,j)= 1-sum(XX.row(i)*XX.row(j))/(sqrt(sum(pow(XX.row(i),2)))*sqrt(sum(pow(XX.row(j),2))));
+        }
       }
     }    
   }
@@ -30,11 +33,11 @@ Rcpp::NumericMatrix distRcpp(Rcpp::NumericMatrix X){
 }   
 
 /*** R
-
+# library(mvtnorm)
 # set.seed(123)
 # X <- rmvnorm(n=5, mean = rep(0, 3), sigma = diag(3))
 # 
-# distRcpp(X)
+# distRcpp(X, "cosine")
 # 
 # 1 - philentropy::distance(X, method = "cosine", mute.message = TRUE)
 

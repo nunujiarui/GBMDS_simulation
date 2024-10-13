@@ -28,7 +28,7 @@ Rcpp::List initialFun_SN_cpp(arma::mat cmds_result, arma::mat dist_mat,
   
   // calculate delta matrix and d matrix
   arma::mat d_mat = dist_mat;
-  Rcpp::NumericMatrix delta_mat_rcpp = distRcpp(wrap(x_initial));
+  Rcpp::NumericMatrix delta_mat_rcpp = distRcpp(wrap(x_initial), metric);
   arma::mat delta_mat = Rcpp::as<Mat<double>>(delta_mat_rcpp);
   // Rcout << "delta_mat " << delta_mat;
   

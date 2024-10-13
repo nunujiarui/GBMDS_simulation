@@ -35,7 +35,7 @@ Rcpp::List likelihoodFun_cpp(arma::mat dist_mat,
   
   // calculate delta matrix and d matrix
   arma::mat d_mat = dist_mat;
-  Rcpp::NumericMatrix delta_mat_rcpp = distRcpp(wrap(x_mat));
+  Rcpp::NumericMatrix delta_mat_rcpp = distRcpp(wrap(x_mat), metric);
   arma::mat delta_mat = Rcpp::as<Mat<double>>(delta_mat_rcpp);
   
   // calculate SSR

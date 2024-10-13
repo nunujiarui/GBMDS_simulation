@@ -233,3 +233,10 @@ multinomialResampleFun <- function(W){
 
 }
 
+# log-sum-exponential evaluation of log(sum(w))
+logsum <- function(logw){
+  logmax = max(logw)
+  log(sum(exp(logw-logmax)))+logmax
+}
+
+

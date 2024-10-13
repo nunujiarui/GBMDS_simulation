@@ -9,7 +9,7 @@ using namespace Rcpp;
 // [[Rcpp::export]]
 
 // likelihood function
-Rcpp::List likelihoodFun_T_cpp(arma::mat dist_mat,
+Rcpp::List likelihoodFun_T_cpp(arma::mat dist_mat, double upper_bound,
                                Rcpp::List proposal_result, 
                                String metric, Rcpp::List hyperparList){
   
@@ -37,7 +37,7 @@ Rcpp::List likelihoodFun_T_cpp(arma::mat dist_mat,
   
   // calculate delta matrix and d matrix
   arma::mat d_mat = dist_mat;
-  Rcpp::NumericMatrix delta_mat_rcpp = distRcpp(wrap(x_mat));
+  Rcpp::NumericMatrix delta_mat_rcpp = distRcpp(wrap(x_mat), metric);
   arma::mat delta_mat = Rcpp::as<Mat<double>>(delta_mat_rcpp);
   
   // calculate SSR
@@ -50,19 +50,28 @@ Rcpp::List likelihoodFun_T_cpp(arma::mat dist_mat,
   // Rcout << "SSR_g: " << SSR_g;
   
   // calculate the term of sum over log of standard normal cdf
-  arma::mat temp = trimatu(delta_mat) % sqrt(trimatu(g)) / sqrt(sigma2);
+  arma::mat temp1 = (upper_bound-trimatu(delta_mat)) % sqrt(trimatu(g)) / sqrt(sigma2);
+  arma::mat temp2 = -trimatu(delta_mat) % sqrt(trimatu(g)) / sqrt(sigma2);
   arma::uvec uw_idx = arma::trimatu_ind(arma::size(delta_mat), 1);
   //lw_idx.print();
-  vec temp_l = temp.elem(uw_idx);
+  vec temp1_l = temp1.elem(uw_idx);
+  vec temp2_l = temp2.elem(uw_idx);
   //x.print();
-  int nn = temp_l.size();
-  arma::vec log_normal_cdf(nn);
+  int nn = temp1_l.size();
+  arma::vec normal_cdf1(nn);
+  arma::vec normal_cdf2(nn);
   for (int i=0; i<nn; i++) {
-    log_normal_cdf(i) = R::pnorm(temp_l(i),0,1,true,true);
+    normal_cdf1(i) = R::pnorm(temp1_l(i),0,1,true,false);
+    normal_cdf2(i) = R::pnorm(temp2_l(i),0,1,true,false);
+    //Rcout << "diff(normal_cdf): " << normal_cdf1(i)-normal_cdf2(i);
   }
+  //Rcout << "temp1_l(i): " << temp1_l(1);
+  //Rcout << "temp2_l(i): " << temp2_l(1);
+  //Rcout << "normal_cdf1(i): " << normal_cdf1(1);
+  //Rcout << "normal_cdf2(i): " << normal_cdf2(1);
   
   // log_normal_cdf.print();
-  double sum_log_normal_cdf = sum(log_normal_cdf);
+  double sum_log_normal_cdf = sum(log(normal_cdf1 - normal_cdf2));
   // Rcout << "sum_log_normal_cdf: " << sum_log_normal_cdf;
   
   // calculate the log likelihood
@@ -133,8 +142,8 @@ Rcpp::List likelihoodFun_T_cpp(arma::mat dist_mat,
 
 /*** R
 
-likelihoodFun_T_cpp(dist_mat,
-                    proposal_result = proposal.result,
-                    metric, hyperparList)
+# likelihoodFun_T_cpp(dist_mat,
+#                     proposal_result = proposal.result,
+#                     metric, hyperparList)
 
 */

@@ -10,7 +10,7 @@ using namespace Rcpp;
 // [[Rcpp::export]]
 
 // likelihood function
-Rcpp::List likelihoodFun_SN_cpp(arma::mat dist_mat,
+Rcpp::List likelihoodFun_SN_cpp(arma::mat dist_mat, double upper_bound,
                                 Rcpp::List proposal_result, 
                                 String metric, Rcpp::List hyperparList){
   
@@ -39,7 +39,7 @@ Rcpp::List likelihoodFun_SN_cpp(arma::mat dist_mat,
   
   // calculate delta matrix and d matrix
   arma::mat d_mat = dist_mat;
-  Rcpp::NumericMatrix delta_mat_rcpp = distRcpp(wrap(x_mat));
+  Rcpp::NumericMatrix delta_mat_rcpp = distRcpp(wrap(x_mat), metric);
   arma::mat delta_mat = Rcpp::as<Mat<double>>(delta_mat_rcpp);
   
   // calculate SSR
@@ -72,7 +72,7 @@ Rcpp::List likelihoodFun_SN_cpp(arma::mat dist_mat,
     // SEXP truncated_term1 = psnorm_cpp(1e10, delta_l(i), sqrt(sigma2), psi);
     // SEXP truncated_term2 = psnorm_cpp(0, delta_l(i), sqrt(sigma2), psi);
     // double truncated_term12 = *REAL(truncated_term1) - *REAL(truncated_term2);
-    double truncated_term1 = mypsnorm_cpp(1e10, delta_l(i), sqrt(sigma2), psi);
+    double truncated_term1 = mypsnorm_cpp(upper_bound, delta_l(i), sqrt(sigma2), psi);
     double truncated_term2 = mypsnorm_cpp(0, delta_l(i), sqrt(sigma2), psi);
     double truncated_term12 = truncated_term1 - truncated_term2;
     truncated_term_vec(i) = log(abs(truncated_term12));

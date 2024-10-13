@@ -1,29 +1,30 @@
 #include <RcppArmadillo.h>
 // [[Rcpp::depends(RcppArmadillo)]]
-#include "distRcpp.h"
-#include "SSRFun_cpp.h"
-#include "dinvgamma_cpp.h"
-#include "dmvnrm_arma_fast.h"
+// #include "distRcpp.h"
+// #include "SSRFun_cpp.h"
+// #include "dinvgamma_cpp.h"
+// #include "dmvnrm_arma_fast.h"
 #include "mypsnorm_cpp.h"
 
 using namespace Rcpp;
 // [[Rcpp::export]]
 
 // likelihood function
-Rcpp::List likelihoodFun_SN_cpp(arma::mat dist_mat, double upper_bound,
-                                Rcpp::List proposal_result, 
-                                String metric, Rcpp::List hyperparList){
+Rcpp::List likelihoodFun_SN_incr_cpp(arma::mat dist_mat, double upper_bound,
+                                     Rcpp::List proposal_result, 
+                                     String metric, Rcpp::List hyperparList,
+                                     double n_incr){
   
   double n_obj = dist_mat.n_rows;
   int m = n_obj * (n_obj - 1) / 2;
   
   // extract hyperparameters
-  double a = hyperparList["a"];
-  double b = hyperparList["b"];
-  double c = hyperparList["c"];
-  double d = hyperparList["d"];
-  double alpha = hyperparList["alpha"];
-  arma::vec beta = hyperparList["beta"];
+  //double a = hyperparList["a"];
+  //double b = hyperparList["b"];
+  //double c = hyperparList["c"];
+  //double d = hyperparList["d"];
+  //double alpha = hyperparList["alpha"];
+  //arma::vec beta = hyperparList["beta"];
   
   // extract proposal results
   arma::mat x_mat = proposal_result["x"];
@@ -91,41 +92,44 @@ Rcpp::List likelihoodFun_SN_cpp(arma::mat dist_mat, double upper_bound,
   // calculate the log priors
   // prior for X
   arma::vec x_logprior_temp;
-  arma::vec x_logprior(n_obj);
+  double n_diff = n_obj - n_incr;
+  // Rcout << "n_diff: " << n_diff;
+  arma::vec x_logprior(n_diff);
   arma::rowvec x_mean(p, fill::zeros);
-  for (int i = 0; i < n_obj; i++){
+  //x_logprior.print();
+  for (int i = 0; i < (n_obj - n_incr); i++){
     x_logprior_temp = dmvnrm_arma_fast(x_mat.row(i), x_mean,
-                                           lambda, true);
+                                       lambda, true);
     // x_logprior_vec_temp.print();
     x_logprior[i] = as_scalar(x_logprior_temp);
     // x_logprior_vec.print();
   }
-  // x_logprior_vec.print();
+  // x_logprior.print();
   
   // prior for sigma2
-  Rcpp::NumericVector sigma2_vec = {sigma2};
-  Rcpp::NumericVector sigma2_logprior_vec = dinvgamma_cpp(sigma2_vec, a, 1.0/b, true);
-  double sigma2_logprior = sigma2_logprior_vec[0];
+  // Rcpp::NumericVector sigma2_vec = {sigma2};
+  // Rcpp::NumericVector sigma2_logprior_vec = dinvgamma_cpp(sigma2_vec, a, 1.0/b, true);
+  // double sigma2_logprior = sigma2_logprior_vec[0];
   // Rcout << "sigma2_logprior_vec: " << sigma2_logprior_vec;
   // Rcout << "sigma2_logprior: " << sigma2_logprior;
   
   // prior for lambda
-  arma::vec lambda_logprior(p);
-  for (int j = 0; j < p; j++){
-    Rcpp::NumericVector temp = dinvgamma_cpp(lambda_diag_rcpp,
-                                             alpha, 1.0/beta[j], true);
-    // Rcout << "temp: " << temp;
-    arma::vec temp_arma = as<arma::vec>(wrap(temp));
-    //temp_arma.print();
-    lambda_logprior[j] = temp_arma[j];
-  }
+  // arma::vec lambda_logprior(p);
+  // for (int j = 0; j < p; j++){
+  //   Rcpp::NumericVector temp = dinvgamma_cpp(lambda_diag_rcpp,
+  //                                            alpha, 1.0/beta[j], true);
+  //   // Rcout << "temp: " << temp;
+  //   arma::vec temp_arma = as<arma::vec>(wrap(temp));
+  //   //temp_arma.print();
+  //   lambda_logprior[j] = temp_arma[j];
+  // }
   // lambda_logprior.print();
   
   // prior for psi
-  double psi_logprior = R::dunif(psi,c,d,true);
+  // double psi_logprior = R::dunif(psi,c,d,true);
   // Rcout << "psi_logprior: " << psi_logprior;
   
-  double logprior = sum(x_logprior) + sigma2_logprior + sum(lambda_logprior) + psi_logprior;
+  double logprior = sum(x_logprior);
   // Rcout << "logprior: " << logprior;
   
   // calculate log posterior
@@ -146,23 +150,9 @@ Rcpp::List likelihoodFun_SN_cpp(arma::mat dist_mat, double upper_bound,
 
 /*** R
 
-# likelihoodFun_SN_cpp(dist_mat,
-#                   proposal_result = proposal.result,
-#                   metric, hyperparList)
-# set.seed(452)
-# start.time <- Sys.time()
-# erin <- lapply(1:K, function(i){likelihoodFun_SN_cpp(dist_mat,
-#                                                       proposal_result = proposal.result,
-#                                                       metric, hyperparList)})
-# end.time <- Sys.time()
-# end.time - start.time
-# 
-# set.seed(452)
-# start.time <- Sys.time()
-# rex <- sapply(1:K, function(i){likelihoodFun_SN_cpp(dist_mat,
-#                                                     proposal_result = proposal.result,
-#                                                     metric, hyperparList)})
-# end.time <- Sys.time()
-# end.time - start.time
+# likelihoodFun_SN_incr_cpp(dist_mat = dist.mat,
+#                           proposal_result = currentVal,
+#                           metric, hyperparList, n.incr)
+
 
 */

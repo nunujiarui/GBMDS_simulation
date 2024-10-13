@@ -8,23 +8,31 @@ using namespace Rcpp;
 // [[Rcpp::export]]
 
 // Initialize parameters
-Rcpp::List initialFun_cpp(arma::mat cmds_result, arma::mat dist_mat, 
-                          String metric, Rcpp::List hyperparList){
+Rcpp::List initialFun_SN_incr_cpp(arma::mat prev_result, arma::mat dist_mat, 
+                                  String metric, Rcpp::List hyperparList){
   
   int n_obj = dist_mat.n_rows;
-  int p = cmds_result.n_cols;
+  int p = prev_result.n_cols;
   // int m = n_obj * (n_obj - 1) / 2;
   arma::mat reference_x_sd = hyperparList["reference_x_sd"];
   
   // initialize particles
   // x_i (from reference distribution)
   arma::mat x_initial(n_obj, p, arma::fill::zeros);
-  for (int i = 0; i < cmds_result.n_rows; i++){
-    arma::rowvec temp0 = cmds_result.row(i);
+  for (int i = 0; i < prev_result.n_rows; i++){
+    arma::rowvec temp0 = prev_result.row(i);
     NumericVector temp1 = NumericVector(temp0.begin(), temp0.end());
     x_initial.row(i) = rmvnorm_arma(1, temp1, reference_x_sd);
     //x_initial.row(i).print();
   }
+  // x_i (from prior distribution)
+  for (int i = prev_result.n_rows; i < n_obj; i++){
+    NumericVector temp2 (p);
+    x_initial.row(i) = rmvnorm_arma(1, temp2, reference_x_sd);
+  }
+  
+  
+  
   
   // calculate delta matrix and d matrix
   arma::mat d_mat = dist_mat;
@@ -39,6 +47,8 @@ Rcpp::List initialFun_cpp(arma::mat cmds_result, arma::mat dist_mat,
   // extract hyperparameters
   double a = hyperparList["a"];
   double b = hyperparList["b"];
+  double c = hyperparList["c"];
+  double d = hyperparList["d"];
   double alpha = hyperparList["alpha"];
   arma::vec beta = hyperparList["beta"];
   
@@ -54,17 +64,14 @@ Rcpp::List initialFun_cpp(arma::mat cmds_result, arma::mat dist_mat,
   }
   arma::mat lambda_initial = diagmat(lambda_initial_diag);
   
+  // psi (from prior distribution)
+  double psi_initial = R::runif(c,d);
+  
   Rcpp::List output = Rcpp::List::create(Rcpp::Named("x")=x_initial,
                                          Rcpp::Named("sigma2")=sigma2_initial,
-                                         Rcpp::Named("lambda")=lambda_initial);
+                                         Rcpp::Named("lambda")=lambda_initial,
+                                         Rcpp::Named("psi")=psi_initial);
   
   return(output);
 }
 
-
-/*** R
-
-# initialFun_cpp(cmds_result, dist_mat, metric, hyperparList)
-
-
-*/

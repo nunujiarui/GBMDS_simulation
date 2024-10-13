@@ -5,16 +5,16 @@
 #include "SSRFun_cpp.h"
 #include "dinvgamma_cpp.h"
 #include "dmvnrm_arma_fast.h"
-#include "likelihoodFun_SN_cpp.h"
+#include "likelihoodFun_SN_incr_cpp.h"
 #include "logReferenceRatio_cpp.h"
 using namespace Rcpp;
 // [[Rcpp::export]]
 
 // proposal function
-Rcpp::List proposalFun_SN_cpp(arma::mat dist_mat, Rcpp::List currentVal, 
+Rcpp::List proposalFun_SN_incr_cpp(arma::mat dist_mat, Rcpp::List currentVal, 
                               arma::mat prevX, double annealingPar,
                               String metric, Rcpp::List hyperparList,
-                              double upper_bound){
+                              double n_incr, double upper_bound){
   
   double n_obj = dist_mat.n_rows;
   int m = n_obj * (n_obj - 1) / 2;
@@ -112,10 +112,10 @@ Rcpp::List proposalFun_SN_cpp(arma::mat dist_mat, Rcpp::List currentVal,
                                              Rcpp::Named("lambda")=lambda_proposal,
                                              Rcpp::Named("psi")=psi_proposal);
     
-    Rcpp::List result_new = likelihoodFun_SN_cpp(dist_mat, upper_bound, proposal,
-                                                 metric, hyperparList);
-    Rcpp::List result_cur = likelihoodFun_SN_cpp(dist_mat, upper_bound, currentVal, 
-                                                 metric, hyperparList);
+    Rcpp::List result_new = likelihoodFun_SN_incr_cpp(dist_mat, upper_bound, proposal,
+                                                 metric, hyperparList, n_incr);
+    Rcpp::List result_cur = likelihoodFun_SN_incr_cpp(dist_mat, upper_bound, currentVal, 
+                                                 metric, hyperparList, n_incr);
     
     // double dproposal_new = dproposalFun_cpp(dist_mat,
     //                                         proposal, currentVal,

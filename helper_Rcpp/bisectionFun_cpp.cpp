@@ -35,6 +35,7 @@ double bisectionFun_cpp(double low, double high,
       high = mid;
     }
   }
+  
   Rcout << "Too many iterations";
 }
 
