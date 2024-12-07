@@ -14,7 +14,7 @@
 #' 
 
 ASMC_Rcpp <- function(model, dist.mat, tuningparList, n.core, 
-                      cmds.result, metric, upper_bound){
+                      cmds.result, metric, upper_bound, n.update, n.update.x){
 
   # register the number of cores to use for parallel execution
   registerDoMC(n.core)
@@ -44,6 +44,12 @@ ASMC_Rcpp <- function(model, dist.mat, tuningparList, n.core,
   # initialize the relative effective sample size
   rESS <- numeric()
   rESS[1] <- 0
+  
+  # initialize the acceptance rate
+  accept_rate <- numeric()
+  accept_rate[1] <- 0
+  accept_rate_x <- numeric()
+  accept_rate_x[1] <- 0
 
   # initialize particles with independent samples
   theta <- list()
@@ -178,7 +184,7 @@ ASMC_Rcpp <- function(model, dist.mat, tuningparList, n.core,
     }
 
     ## compute pre-sampling unnormalized weights
-    logw <- logw + tauDiff[r]*logL
+    logw <- logW + tauDiff[r]*logL
     # normalize the weights
     logmax <- max(logw)
     W <- exp(logw-logmax)/sum(exp(logw-logmax))
@@ -223,15 +229,25 @@ ASMC_Rcpp <- function(model, dist.mat, tuningparList, n.core,
       # }
       # print(attempt)
       
+      update_list <- sample(seq(1:(length(currentVal)-1)), n.update, replace = FALSE)
+      if (n.update.x == n){
+        update_list_x <- seq(1:n)
+      } else{
+        update_list_x <- sample(seq(1:n), n.update.x, replace = FALSE)
+      }
+      
       if (any(class(model) %in% c("truncatedN"))){
         prop.result <- proposalFun_cpp(dist.mat, currentVal, prevX, 
-                                       tau[r], metric, hyperparList, upper_bound)
+                                       tau[r], metric, hyperparList, 
+                                       upper_bound, update_list, update_list_x)
       } else if (any(class(model) %in% c("truncatedT"))){
         prop.result <- proposalFun_T_cpp(dist.mat, currentVal, prevX, 
-                                         tau[r], metric, hyperparList, upper_bound)
+                                         tau[r], metric, hyperparList, 
+                                         upper_bound, update_list, update_list_x)
       } else if (any(class(model) %in% c("truncatedSkewedN"))){
         prop.result <- proposalFun_SN_cpp(dist.mat, currentVal, prevX, 
-                                          tau[r], metric, hyperparList, upper_bound)
+                                          tau[r], metric, hyperparList, 
+                                          upper_bound, update_list, update_list_x)
       }
 
       # prop.result <- proposalFun_cpp(dist.mat, currentVal, prevX,
@@ -244,14 +260,23 @@ ASMC_Rcpp <- function(model, dist.mat, tuningparList, n.core,
         g <- prop.result$g
       }
       psi <- prop.result$psi
+      
+      accept_count <- prop.result$accept_count
+      accept_count_x <- prop.result$accept_count_x
 
       # save the previous particles' coordinates x
       xi.prev <- currentVal$x
 
       if (any(class(model) %in% c("truncatedT"))){
-        result <- list(xi = xi, sigma2 = sigma2, lambda = lambda, xi.prev = xi.prev, g = g, psi = psi)
+        result <- list(xi = xi, sigma2 = sigma2, lambda = lambda, 
+                       accept_count = accept_count,
+                       accept_count_x = accept_count_x,
+                       xi.prev = xi.prev, g = g, psi = psi)
       } else{
-        result <- list(xi = xi, sigma2 = sigma2, lambda = lambda, xi.prev = xi.prev, psi = psi)
+        result <- list(xi = xi, sigma2 = sigma2, lambda = lambda, 
+                       accept_count = accept_count,
+                       accept_count_x = accept_count_x,
+                       xi.prev = xi.prev, psi = psi)
       }
 
       return(result)
@@ -267,6 +292,8 @@ ASMC_Rcpp <- function(model, dist.mat, tuningparList, n.core,
       lambda <- lapply(1:K, function(k){result.MCMC[[k]]$lambda})
       xi.prev <- lapply(1:K, function(k){result.MCMC[[k]]$xi.prev})
       psi <- unlist(lapply(1:K, function(k){result.MCMC[[k]]$psi}))
+      accept_count <- unlist(lapply(1:K, function(k){result.MCMC[[k]]$accept_count}))
+      accept_count_x <- unlist(lapply(1:K, function(k){result.MCMC[[k]]$accept_count_x}))
       if (any(class(model) %in% c("truncatedT"))){
         g <- lapply(1:K, function(k){result.MCMC[[k]]$g})
       }
@@ -277,17 +304,21 @@ ASMC_Rcpp <- function(model, dist.mat, tuningparList, n.core,
       lambda <- lapply(1:K, function(k){result.MCMC[[k]]$lambda})
       xi.prev <- lapply(1:K, function(k){result.MCMC[[k]]$xi.prev})
       psi <- unlist(lapply(1:K, function(k){result.MCMC[[k]]$psi}))
+      accept_count <- unlist(lapply(1:K, function(k){result.MCMC[[k]]$accept_count}))
+      accept_count_x <- unlist(lapply(1:K, function(k){result.MCMC[[k]]$accept_count_x}))
       if (any(class(model) %in% c("truncatedT"))){
         g <- lapply(1:K, function(k){result.MCMC[[k]]$g})
       }
     }
-
+    
+    accept_rate[r] <- sum(accept_count)/K
+    accept_rate_x[r] <- sum(accept_count_x == 1)/sum(accept_count_x != 0)
+    
     sigma2.list[[r]] <- sigma2
 
     ## update the log marginal likelihood estimate
-    # logZ <- logZ + log(sum(exp(logw - logmax))) + logmax
-    logZ <- logZ + logsum(tauDiff[r]*logL + logw)
-    #print(logZ)
+    logZ <- logZ + log(sum(exp(logw - logmax))) + logmax
+    #logZ <- logZ + logsum(tauDiff[r]*logL + logw)
 
     ## compute the rESS
     rESS[r] <- rESSFun(logW)
@@ -300,11 +331,15 @@ ASMC_Rcpp <- function(model, dist.mat, tuningparList, n.core,
         output.list <- list(xi.output = xi, sigma2.output = sigma2, psi.output = psi,
                             lambda.output = lambda, g.output = g,
                             weight.output = W,
+                            rESS = rESS, accept_rate = accept_rate,
+                            accept_rate_x = accept_rate_x,
                             SSR.output = SSR, logZ = logZ, iteration = r)
       } else{
         output.list <- list(xi.output = xi, sigma2.output = sigma2, psi.output = psi,
                             lambda.output = lambda,
                             weight.output = W,
+                            rESS = rESS, accept_rate = accept_rate,
+                            accept_rate_x = accept_rate_x,
                             SSR.output = SSR, logZ = logZ, iteration = r)
       }
     } else if (rESS[r] < tuningparList$eps){

@@ -87,7 +87,7 @@ Rcpp::List likelihoodFun_SN_incr_cpp(arma::mat dist_mat, double upper_bound,
   //Rcout << "truncated_term: " << truncated_term;
   
   // calculate the log likelihood
-  double loglikelihood = -(m/2)*log(sigma2) + truncated_term -
+  double loglikelihood = -(m/2)*log(sigma2) - truncated_term -
     SSR/(2*sigma2) + sum_log_normal_cdf;
   // Rcout << "loglikelihood: " << loglikelihood;
   

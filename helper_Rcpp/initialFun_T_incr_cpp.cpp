@@ -20,30 +20,6 @@ Rcpp::List initialFun_T_incr_cpp(arma::mat prev_result, arma::mat dist_mat,
   // Rcout << "n_incr " << n_incr;
   
   // initialize particles
-  // x_i (from reference distribution)
-  arma::mat x_initial(n_obj, p, arma::fill::zeros);
-  for (int i = 0; i < prev_result.n_rows; i++){
-    arma::rowvec temp0 = prev_result.row(i);
-    NumericVector temp1 = NumericVector(temp0.begin(), temp0.end());
-    x_initial.row(i) = rmvnorm_arma(1, temp1, reference_x_sd);
-    //x_initial.row(i).print();
-  }
-  // x_i (from prior distribution)
-  for (int i = prev_result.n_rows; i < n_obj; i++){
-    NumericVector temp2 (p);
-    x_initial.row(i) = rmvnorm_arma(1, temp2, reference_x_sd);
-  }
-  //x_initial.print();
-  
-  // calculate delta matrix and d matrix
-  arma::mat d_mat = dist_mat;
-  Rcpp::NumericMatrix delta_mat_rcpp = distRcpp(wrap(x_initial), metric);
-  arma::mat delta_mat = Rcpp::as<Mat<double>>(delta_mat_rcpp);
-  // Rcout << "delta_mat " << delta_mat;
-  
-  // calculate SSR initial
-  // double SSR_initial = SSRFun_cpp(d_mat, delta_mat);
-  // Rcout << "SSR_initial" << SSR_initial;
 
   // extract hyperparameters
   double a = hyperparList["a"];
@@ -63,6 +39,21 @@ Rcpp::List initialFun_T_incr_cpp(arma::mat prev_result, arma::mat dist_mat,
     lambda_initial_diag(i) = 1/arma::randg(distr_param(alpha,1/(beta[i])));
   }
   arma::mat lambda_initial = diagmat(lambda_initial_diag);
+  
+  // x_i (from reference distribution)
+  arma::mat x_initial(n_obj, p, arma::fill::zeros);
+  for (int i = 0; i < prev_result.n_rows; i++){
+    arma::rowvec temp0 = prev_result.row(i);
+    NumericVector temp1 = NumericVector(temp0.begin(), temp0.end());
+    x_initial.row(i) = rmvnorm_arma(1, temp1, reference_x_sd);
+    //x_initial.row(i).print();
+  }
+  // x_i (from prior distribution)
+  for (int i = prev_result.n_rows; i < n_obj; i++){
+    NumericVector temp2(p);
+    x_initial.row(i) = rmvnorm_arma(1, temp2, lambda_initial);
+  }
+  //x_initial.print();
   
   // g (from prior distribution)
   arma::mat g_initial(n_obj, n_obj, arma::fill::zeros);

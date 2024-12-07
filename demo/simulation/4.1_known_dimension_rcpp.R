@@ -19,10 +19,12 @@ library(doMC)
 library(bayMDS)
 
 ## create containers to store the results
-cmds.stress <- matrix(data = NA, nrow = 7, ncol = 20)
-tn.logZ = tn.stress = tsn.logZ = psi = tsn.stress = tt.logZ = tt.stress <- matrix(data = NA, nrow = 7, ncol = 20)
-tn.time = tsn.time = tt.time <- matrix(data = NA, nrow = 7, ncol = 20)
-bmds.stress1 = bmds.stress2 = bmds.time <- matrix(data = NA, nrow = 7, ncol = 20)
+n.run <- 20
+cmds.stress <- matrix(data = NA, nrow = 7, ncol = n.run)
+tn.logZ = tn.stress = tsn.logZ = psi = tsn.stress = 
+  tt.logZ = tt.stress <- matrix(data = NA, nrow = 7, ncol = n.run)
+tn.time = tsn.time = tt.time <- matrix(data = NA, nrow = 7, ncol = n.run)
+bmds.stress1 = bmds.stress2 = bmds.time <- matrix(data = NA, nrow = 7, ncol = n.run)
 
 ## source ASMC models
 # helper functions
@@ -36,8 +38,6 @@ source(file = "R/ASMC_truncatedN.R")
 source(file = "R/ASMC_truncatedT.R")
 # truncated skewed Normal
 source(file = "R/ASMC_truncatedSkewedN.R")
-# function to plot ASMC result
-source(file = "R/ASMC_plot.R")
 
 # helper rcpp functions
 Rcpp::sourceCpp(file = "helper_Rcpp/bisectionFun_cpp.cpp")
@@ -58,31 +58,28 @@ Rcpp::sourceCpp(file = "helper_Rcpp/initialFun_T_cpp.cpp")
 Rcpp::sourceCpp(file = "helper_Rcpp/likelihoodFun_T_rcpp.cpp")
 Rcpp::sourceCpp(file = "helper_Rcpp/proposalFun_T_cpp.cpp")
 
+n1 = 4 # number of parameters to propose in each ASMC iteration
+n2 = 100 # number of observations (X) to propose in each ASMC iteration
+
 ## run simulations 20 times
-for (i in 1:20){
+for (i in 1:n.run){
   
   ## choose dissimilarity metric
-  dist.metric <- c("euclidean", "cosine")
-  # change this index to try different distance metrics
-  # also need to change the distance calculation in distRcpp.h in folder helper_Rcpp
-  dist.metric.index <- 1
+  dist.metric <- "euclidean"
   
   ## simulate 100 random samples from a 5-dim multivariate Gaussian distribution
   ## with mean 0 and variance I, the identity matrix
   X <- rmvnorm(n = 100, mean = rep(0, 5), sigma=diag(5))
   
   ## get true pairwise Euclidean dissimilarities
-  true.dis <- as.matrix(dist(X, method = dist.metric[dist.metric.index]))
+  true.dis <- as.matrix(dist(X, method = dist.metric))
   
   ## Given true pairwise Euclidean dissimilarities, 
   ## generate the observed dissimilarities from some normal distribution
   f1 <- function(x){
     res <- 0
     while (res <= 0){
-      res <- rnorm(1, mean = x, sd = 0.5)
-      #res <- rtruncnorm(1, a=-5, b=5, mean = x, sd = 0.5)
-      #zeta <- rgamma(1, 5/2, 5/2)
-      #res <- rnorm(1, mean = x, sd = 0.5/zeta)
+      res <- rnorm(1, mean = x, sd = 1)
     }
     return(res)
   }
@@ -142,7 +139,9 @@ for (i in 1:20){
     asmc.result1 <- ASMC_Rcpp(model = model,
                               dist.mat = dis,
                               tuningparList, n.core, cmds.result = cmds.result$points,
-                              metric = dist.metric[dist.metric.index])
+                              metric = dist.metric,
+                              upper_bound = 1e5, n.update = n1,
+                              n.update.x = n2)
     end.time <- Sys.time()
     tn.time[(p-1),i] <- difftime(end.time, start.time, units = "secs")
     
@@ -152,11 +151,12 @@ for (i in 1:20){
     tn.index.asmc <- which.min(asmc.result1$SSR.output)
     tn.asmc.res <- asmc.result1$xi.output[[tn.index.asmc]]
     
-    tn.stress[(p-1),i] <- round(stressFun(d.mat = dis.true,
-                                    delta.mat = as.matrix(dist(tn.asmc.res, method = "euclidean"))), 4)
+    (tn.stress[(p-1),i] <- round(stressFun(d.mat = dis.true,
+                                    delta.mat = as.matrix(dist(tn.asmc.res, method = "euclidean"))), 4))
     
     tn.iteration <- asmc.result1$iteration
     
+    #set.seed(549)
     ## 2. anneal SMC with truncated skewed Normal
     model <- truncatedSkewedN(hyperparList, p, reference.x.sd)
     
@@ -165,7 +165,9 @@ for (i in 1:20){
     asmc.result2 <- ASMC_Rcpp(model = model,
                               dist.mat = dis,
                               tuningparList, n.core, cmds.result = cmds.result$points,
-                              metric = dist.metric[dist.metric.index])
+                              metric = dist.metric,
+                              upper_bound = 1e5, n.update = n1, 
+                              n.update.x = n2)
     end.time <- Sys.time()
     tsn.time[(p-1),i] <- difftime(end.time, start.time, units = "secs")
     
@@ -188,7 +190,9 @@ for (i in 1:20){
     asmc.result3 <- ASMC_Rcpp(model = model,
                               dist.mat = dis,
                               tuningparList, n.core, cmds.result = cmds.result$points,
-                              metric = dist.metric[dist.metric.index])
+                              metric = dist.metric,
+                              upper_bound = 1e5, n.update = n1, 
+                              n.update.x = n2)
     end.time <- Sys.time()
     tt.time[(p-1),i] <- end.time - start.time
     
@@ -219,3 +223,7 @@ for (i in 1:20){
   gc()
   
 }
+
+
+
+

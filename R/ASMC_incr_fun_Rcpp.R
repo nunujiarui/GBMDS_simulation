@@ -12,7 +12,8 @@
 
 
 ASMC_incr_Rcpp <- function(model, dist.mat, tuningparList, n.core, 
-                           prev.result, metric, upper_bound){
+                           prev.result, metric, upper_bound, 
+                           n.update, n.update.x){
 
   n <- nrow(dist.mat)
   K <- tuningparList$K
@@ -40,6 +41,12 @@ ASMC_incr_Rcpp <- function(model, dist.mat, tuningparList, n.core,
   # initialize the relative effective sample size
   rESS <- numeric()
   rESS[1] <- 0
+  
+  # initialize the acceptance rate
+  accept_rate <- numeric()
+  accept_rate[1] <- 0
+  accept_rate_x <- numeric()
+  accept_rate_x[1] <- 0
 
   # initialize particles with independent samples
   theta <- list()
@@ -201,17 +208,39 @@ ASMC_incr_Rcpp <- function(model, dist.mat, tuningparList, n.core,
       } else{
         prevX <- xi.prev[[k]]
       }
+      
+      update_list <- sample(seq(1:length(currentVal)), n.update, replace = FALSE)
+      # choose observations in original or incremental part with equal probability to propose
+      if (n.update.x == n){
+        update_list_x <- seq(1, n)
+      } else{
+        temp <- sample(c(1,2), size = n.update.x, prob = c(0.4, 0.6), replace = TRUE) 
+        
+        n1 <- sum(temp == 1)
+        n2 <- sum(temp == 2)
+        # choose observations in the corresponding part to propose
+        update_list_x <- c(sample(seq(1:nrow(prev.result)), # sample from original part
+                                  n1, replace = TRUE), 
+                           sample(c(nrow(prev.result):nrow(dis)),  # sample from incremental part
+                                  n2, replace = TRUE))
+      }
+      update_list_x <- unique(update_list_x)
+      
 
       if (any(class(model) %in% c("truncatedN_incr"))){
         prop.result <- proposalFun_incr_cpp(dist.mat, currentVal, prevX, 
                                        tau[r], metric, hyperparList, n.incr, upper_bound)
       } else if (any(class(model) %in% c("truncatedT_incr"))){
         prop.result <- proposalFun_T_incr_cpp(dist.mat, currentVal, prevX, 
-                                              tau[r], metric, hyperparList, n.incr, upper_bound)
+                                              tau[r], metric, hyperparList, n.incr, 
+                                              upper_bound, update_list, update_list_x)
       } else if (any(class(model) %in% c("truncatedSkewedN_incr"))){
         prop.result <- proposalFun_SN_incr_cpp(dist.mat, currentVal, prevX, 
-                                          tau[r], metric, hyperparList, n.incr, upper_bound)
+                                          tau[r], metric, hyperparList, n.incr, 
+                                          upper_bound, update_list, update_list_x)
       }
+      
+      accept_count <- prop.result$accept_count
       
       xi <- prop.result$x
       sigma2 <- prop.result$sigma2
@@ -220,14 +249,21 @@ ASMC_incr_Rcpp <- function(model, dist.mat, tuningparList, n.core,
         g <- prop.result$g
       }
       psi <- prop.result$psi
+      accept_count_x <- prop.result$accept_count_x
 
       # save the previous particles' coordinates x
       xi.prev <- currentVal$x
 
       if (any(class(model) %in% c("truncatedT_incr"))){
-        result <- list(xi = xi, sigma2 = sigma2, lambda = lambda, xi.prev = xi.prev, g = g, psi = psi)
+        result <- list(xi = xi, sigma2 = sigma2, lambda = lambda, 
+                       accept_count = accept_count,
+                       accept_count_x = accept_count_x,
+                       xi.prev = xi.prev, g = g, psi = psi)
       } else{
-        result <- list(xi = xi, sigma2 = sigma2, lambda = lambda, xi.prev = xi.prev, psi = psi)
+        result <- list(xi = xi, sigma2 = sigma2, lambda = lambda, 
+                       accept_count = accept_count,
+                       accept_count_x = accept_count_x,
+                       xi.prev = xi.prev, psi = psi)
       }
 
       return(result)
@@ -244,6 +280,8 @@ ASMC_incr_Rcpp <- function(model, dist.mat, tuningparList, n.core,
       lambda <- lapply(1:K, function(k){result.MCMC[[k]]$lambda})
       xi.prev <- lapply(1:K, function(k){result.MCMC[[k]]$xi.prev})
       psi <- unlist(lapply(1:K, function(k){result.MCMC[[k]]$psi}))
+      accept_count <- unlist(lapply(1:K, function(k){result.MCMC[[k]]$accept_count}))
+      accept_count_x <- unlist(lapply(1:K, function(k){result.MCMC[[k]]$accept_count_x}))
       if (any(class(model) %in% c("truncatedT_incr"))){
         g <- lapply(1:K, function(k){result.MCMC[[k]]$g})
       }
@@ -254,10 +292,16 @@ ASMC_incr_Rcpp <- function(model, dist.mat, tuningparList, n.core,
       lambda <- lapply(1:K, function(k){result.MCMC[[k]]$lambda})
       xi.prev <- lapply(1:K, function(k){result.MCMC[[k]]$xi.prev})
       psi <- unlist(lapply(1:K, function(k){result.MCMC[[k]]$psi}))
+      accept_count <- unlist(lapply(1:K, function(k){result.MCMC[[k]]$accept_count}))
+      accept_count_x <- unlist(lapply(1:K, function(k){result.MCMC[[k]]$accept_count_x}))
       if (any(class(model) %in% c("truncatedT_incr"))){
         g <- lapply(1:K, function(k){result.MCMC[[k]]$g})
       }
     }
+    
+    #print(sum(accept_count)/K)
+    accept_rate[r] <- sum(accept_count)/K
+    accept_rate_x[r] <- sum(accept_count_x == 1)/sum(accept_count_x != 0)
 
     sigma2.list[[r]] <- sigma2
 
@@ -266,6 +310,7 @@ ASMC_incr_Rcpp <- function(model, dist.mat, tuningparList, n.core,
 
     ## compute the rESS
     rESS[r] <- rESSFun(logW)
+    #print(rESS[r])
 
     # check the value for tau_r
     if (tau[r] == 1){
@@ -275,11 +320,15 @@ ASMC_incr_Rcpp <- function(model, dist.mat, tuningparList, n.core,
         output.list <- list(xi.output = xi, sigma2.output = sigma2, psi.output = psi,
                             lambda.output = lambda, g = g,
                             weight.output = W,
+                            rESS = rESS, accept_rate = accept_rate,
+                            accept_rate_x = accept_rate_x,
                             SSR.output = SSR, logZ = logZ)
       } else{
         output.list <- list(xi.output = xi, sigma2.output = sigma2, psi.output = psi,
                             lambda.output = lambda,
                             weight.output = W,
+                            rESS = rESS, accept_rate = accept_rate,
+                            accept_rate_x = accept_rate_x,
                             SSR.output = SSR, logZ = logZ)
       }
     } else if (rESS[r] < tuningparList$eps){

@@ -16,7 +16,7 @@ library(sn)
 library(fGarch)
 library(R.matlab)
 library(text2vec)
-library(smacof)
+#library(smacof)
 library(doMC)
 
 ## source ASMC models
@@ -47,27 +47,15 @@ Rcpp::sourceCpp(file = "helper_Rcpp/proposalFun_T_incr_cpp.cpp")
 Rcpp::sourceCpp(file = "helper_Rcpp/bisectionFun_cpp.cpp")
 Rcpp::sourceCpp(file = "helper_Rcpp/dmvnrm_arma_fast_rcpp.cpp")
 
-
 ## define dissimilarity metric
-dist.metric <-  "cosine"
-
-## read in data
-data <- readRDS(file = "data/NIPS_data_small.rds")
-
-# calculate Cosine distances for text
-dis <- 1-philentropy::distance(t(data), method = "cosine", mute.message = TRUE)
-
-
-hist(dis[upper.tri(dis)],
-     xlab = "dissimilarity",
-     main = paste0("Histogram of ", dist.metric, " dissimilarity"))
+dist.metric <-"cosine"
 
 ## set incremental size
 n.t1 <- 50      # correspond to n0
 incr.step <- 5  # correspond to n1
 
 ## create containers to store the results
-n.run <- 20
+n.run <- 30
 time1 <- c(rep(NA, n.run))
 stress1 <- c(rep(NA, n.run))
 time2 <- c(rep(NA, n.run))
@@ -75,8 +63,19 @@ stress2 <- c(rep(NA, n.run))
 time12 <- c(rep(NA, n.run))
 stress12 <- c(rep(NA, n.run))
 
-for (i in 1:n.run){
+n1 <- 2
+n2 <- round((n.t1+incr.step)/2)
+n20 <- round((n.t1)/2)
 
+for (i in 1:1){
+  
+  # permute data columnwise
+  data <- readRDS(file = "data/NIPS_data_small.rds")
+  data <- data[,sample(ncol(data))]
+  
+  # calculate Cosine distances for text
+  dis <- 1-philentropy::distance(t(data), method = "cosine", mute.message = TRUE)
+  
   ## select initial dis and incremental dis
   dis.t1 <- dis[1:n.t1, 1:n.t1]
   dis.t2 <- dis[1:(n.t1+incr.step), 1:(n.t1+incr.step)]
@@ -136,7 +135,7 @@ for (i in 1:n.run){
                        c = c.initial.t2, d = d.initial.t2, constant_multiple = constant.multiple,
                        reference_x_sd = reference.x.sd)
 
-  tuningparList1 <- list(K = 100, phi = 0.80, eps = 0.5)
+  tuningparList1 <- list(K = 100, phi = 0.90, eps = 0.5)
   n.core <- detectCores() - 1
 
   ## set 1 (original part) only
@@ -150,10 +149,21 @@ for (i in 1:n.run){
                               tuningparList = tuningparList1, 
                               n.core, cmds.result = t1.cmds.res,
                               metric = dist.metric,
-                              upper_bound = 1)
+                              upper_bound = 1, n.update = n1, 
+                              n.update.x = n20)
   end.time <- Sys.time()
   time1[i] <- as.numeric(end.time - start.time, units = "secs")
-
+  time1[i]
+  
+  # t1.asmc.result$accept_rate %>% mean()
+  # plot(t1.asmc.result$accept_rate, type = "l",
+  #      xlab = "ASMC iteration", ylab = "acceptce rate",
+  #      main = paste0("n.update = ", n1, ", n.update.x = ", n2))
+  # t1.asmc.result$rESS %>% mean()
+  # plot(t1.asmc.result$rESS, type = "l",
+  #      xlab = "ASMC iteration", ylab = "rESS",
+  #      main = paste0("n.update = ", n1, ", n.update.x = ", n2))
+  
   # posterior inference
   index.asmc.t1 <- which.min(t1.asmc.result$SSR.output)
   t1.asmc.res <- t1.asmc.result$xi.output[[index.asmc.t1]]
@@ -161,7 +171,9 @@ for (i in 1:n.run){
   stress1[i] <- stressFun(d.mat = dis.t1,
                           delta.mat = 1-philentropy::distance(t1.asmc.res,
                                                             method = dist.metric, mute.message = TRUE))
-
+  stress1[i]
+  #plot(t1.asmc.res[,1], t1.asmc.res[,2])
+  
   # store results
   t1.asmc.res.all <- list(xi = t1.asmc.res, sigma2 = t1.asmc.result$sigma2.output[[index.asmc.t1]],
                           lambda = t1.asmc.result$lambda.output[[index.asmc.t1]],
@@ -169,6 +181,7 @@ for (i in 1:n.run){
                           g = t1.asmc.result$g.output[[index.asmc.t1]])
 
   ## set 2 (original + incremental part) only
+  
   n <- nrow(dis.t2)
   start.time <- Sys.time()
   t2.asmc.result <- ASMC_Rcpp(model = model,
@@ -176,7 +189,8 @@ for (i in 1:n.run){
                               tuningparList = tuningparList1, 
                               n.core, cmds.result = t2.cmds.res,
                               metric = dist.metric,
-                              upper_bound = 1)
+                              upper_bound = 1, n.update = n1, 
+                              n.update.x = n2)
   end.time <- Sys.time()
   time2[i] <- as.numeric(end.time - start.time, units = "secs")
 
@@ -187,7 +201,6 @@ for (i in 1:n.run){
   stress2[i] <- stressFun(d.mat = dis.t2,
                           delta.mat = 1-philentropy::distance(t2.asmc.res,
                                                               method = dist.metric, mute.message = TRUE))
-
   ## set 1 and 2 combine
   #reference.x.sd <- cov(t1.asmc.res.all$xi)
   hyperpars.t12 <- list(a = sim.a.initial.t2, b = sim.b.initial.t2,
@@ -196,11 +209,12 @@ for (i in 1:n.run){
                         reference_x_sd = cov(t1.asmc.res.all$xi))
   
   #model <- truncatedSkewedN_incr(hyperparList = hyperpars.t12, p, reference.x.sd)
-  model <- truncatedT_incr(hyperparList = hyperpars.t12, p, reference.x.sd)
+  model <- truncatedT_incr(hyperparList = hyperpars.t12, p,
+                           reference.x.sd = cov(t1.asmc.res.all$xi))
 
   n.incr <- nrow(dis.t2) - nrow(dis.t1)
-  tuningparList2 <- list(K = 50, # reduce the particle size to half
-                         phi = 0.80, eps = 0.5)
+  tuningparList2 <- list(K = 100, # reduce the particle size to half
+                         phi = 0.90, eps = 0.5)
 
   start.time <- Sys.time()
   t12.asmc.result <- ASMC_incr_Rcpp(model = model,
@@ -208,7 +222,8 @@ for (i in 1:n.run){
                                     tuningparList =  tuningparList2, n.core, 
                                     prev.result = t1.asmc.res.all$xi,
                                     metric = dist.metric,
-                                    upper_bound = 1)
+                                    upper_bound = 1, n.update = n1, 
+                                    n.update.x = n2)
   end.time <- Sys.time()
   time12[i] <- as.numeric(end.time - start.time, units = "secs")
 
@@ -218,16 +233,25 @@ for (i in 1:n.run){
 
   stress12[i] <- stressFun(d.mat = dis.t2,
                            delta.mat = 1-philentropy::distance(t12.asmc.res,
-                                                               method = dist.metric, mute.message = TRUE))
-
+                                                               method = dist.metric, 
+                                                               mute.message = TRUE))
+  
 }
 
 # computation time
-summary(time2)  # without adaptive inference
-summary(time12) # with adaptive inference
+a <- 1
+b <- n.run
+summary(time2[a:b])  # without adaptive inference
+summary(time12[a:b]) # with adaptive inference
+
+
+sd(time2[a:b])
+sd(time12[a:b])
+
+
 # STRESS value
-summary(stress2)  # without adaptive inference
-summary(stress12) # with adaptive inference
+summary(stress2[a:b])  # without adaptive inference
+summary(stress12[a:b]) # with adaptive inference
 
 
 

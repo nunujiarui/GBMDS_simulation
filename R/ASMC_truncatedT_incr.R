@@ -440,7 +440,7 @@ likelihoodFun.truncatedT_incr <- function(model, dist.mat, proposal.result, metr
   # }
   #
   # logprior <- sum(x.logprior) + sigma2.logprior + sum(diag(lambda.logprior)) + sum(g.logprior[upper.tri(g.logprior)])
-  logprior <- x.logprior
+  logprior <- sum(x.logprior)
 
   # calculate log posterior
   # As the sum of the log-likelihood and the log-prior.

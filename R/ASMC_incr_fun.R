@@ -150,8 +150,7 @@ ASMC_incr <- function(model, dist.mat, tuningparList, n.core, prev.result, metri
       } else if (any(class(model) %in% c("truncatedSkewedN_incr"))){
         currentVal <- list(x = xi[[k]], sigma2 = sigma2[k], psi = psi[k],
                            lambda = lambda[[k]], SSR = SSR[k])
-      }
-      else{
+      } else{
         currentVal <- list(x = xi[[k]], sigma2 = sigma2[k],
                            lambda = lambda[[k]], SSR = SSR[k])
       }

@@ -240,3 +240,14 @@ logsum <- function(logw){
 }
 
 
+jaccardDist <- function(input){
+  distmatrix <- stringdist::stringdistmatrix(tolower(input),
+                                 useNames = FALSE, method = "jaccard")
+  dis <- as.matrix(distmatrix)
+  
+  return(dis)
+  
+}
+
+
+

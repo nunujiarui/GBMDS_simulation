@@ -68,23 +68,57 @@ Rcpp::List likelihoodFun_SN_cpp(arma::mat dist_mat, double upper_bound,
   // delta_l.print();
   int nn2 = delta_l.size();
   arma::vec truncated_term_vec(nn2);
+  
+  // // Obtaining namespace of sn package
+  // Environment pkg = Environment::namespace_env("sn");
+  // // Picking up psn() function from sn package
+  // Function mypsn = pkg["psn"];
+  
   for (int i=0; i<nn2; i++) {
     // SEXP truncated_term1 = psnorm_cpp(1e10, delta_l(i), sqrt(sigma2), psi);
     // SEXP truncated_term2 = psnorm_cpp(0, delta_l(i), sqrt(sigma2), psi);
     // double truncated_term12 = *REAL(truncated_term1) - *REAL(truncated_term2);
-    double truncated_term1 = mypsnorm_cpp(upper_bound, delta_l(i), sqrt(sigma2), psi);
-    double truncated_term2 = mypsnorm_cpp(0, delta_l(i), sqrt(sigma2), psi);
+    
+    // SEXP truncated_term1 = mypsn(upper_bound, 
+    //                              Named("xi", delta_l(i)),
+    //                              Named("omega", sqrt(sigma2)),
+    //                              Named("alpha", psi));
+    // NumericVector dblVec1(truncated_term1);
+    //                                //delta_l(i), sqrt(sigma2), abs(psi));
+    // if (upper_bound >= 1e5){
+    //   truncated_term1 = 1;
+    // }
+    // SEXP truncated_term2 = mypsn(0, 
+    //                              Named("xi", delta_l(i)),
+    //                              Named("omega", sqrt(sigma2)),
+    //                              Named("alpha", psi));
+    // NumericVector dblVec2(truncated_term2);
+    //   
+    // double truncated_term12 = dblVec1[0] - dblVec2[0];
+    //double truncated_term12 = *REAL(truncated_term1) - *REAL(truncated_term2);
+    
+    double truncated_term1 = mypsnorm_cpp(upper_bound, delta_l(i), sqrt(sigma2), abs(psi));
+    double truncated_term2 = mypsnorm_cpp(0, delta_l(i), sqrt(sigma2), abs(psi));
     double truncated_term12 = truncated_term1 - truncated_term2;
+    
+    // if (i == 5){
+    //   Rcout << "delta_l(i): " << delta_l(i);
+    //   Rcout << "sqrt(sigma2): " << sqrt(sigma2);
+    //   Rcout << "psi: " << psi;
+    //   Rcout << "truncated_term1: " << truncated_term1;
+    //   Rcout << "truncated_term2: " << truncated_term2;
+    //   Rcout << "truncated_term12: " << truncated_term12;
+    // }
     truncated_term_vec(i) = log(abs(truncated_term12));
-    if (!arma::is_finite(truncated_term_vec(i))){
-      truncated_term_vec(i) = 0;
-    }
+    // if (!arma::is_finite(truncated_term_vec(i))){
+    //   truncated_term_vec(i) = 0;
+    // }
   }
   double truncated_term = sum(truncated_term_vec);
   // Rcout << "truncated_term: " << truncated_term;
   
   // calculate the log likelihood
-  double loglikelihood = -(m/2)*log(sigma2) + truncated_term -
+  double loglikelihood = -(m/2)*log(sigma2) - truncated_term -
     SSR/(2*sigma2) + sum_log_normal_cdf;
   // Rcout << "loglikelihood: " << loglikelihood;
   

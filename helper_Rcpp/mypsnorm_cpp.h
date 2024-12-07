@@ -28,7 +28,6 @@ double mypsnorm_cpp(double q, double mean, double sd, double psi){
 
 /*** R
 
-# psnorm(0, -2, 2, 1.5) # 0.8377841
-# mypsnorm_cpp(0, -2, 2, 1.5)
+# psnorm(0, -2,2, 0) # 0.8377841
 
 */

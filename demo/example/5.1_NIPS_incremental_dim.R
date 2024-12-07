@@ -127,7 +127,7 @@ for (i in 1:20){
 
 
   tuningparList1 <- list(K = 100, phi = 0.80, eps = 0.5)
-  n.core <- detectCores() - 1
+  n.core <- detectCores() - 2
 
   ## set 1 (original part) only
   model <- truncatedT(hyperparList = hyperpars.t1, p, reference.x.sd)
